@@ -66,7 +66,7 @@ Jev-project/
 
 ---
 
-## 🛠️ Cosa è Stato Implementato Oggi
+## 🛠️ Cosa è Stato Implementato fino ad oggi
 
 1. **Risolto il problema del Desktop Nascosto (WinSta0 / Sandbox)**:
    - *Problema*: Quando i comandi venivano eseguiti in background, Windows li avviava in un desktop virtuale isolato (`WinSta0\exebox-...`); il server diceva *"Aperto a schermo"*, ma sul monitor dell'utente non compariva nulla.
