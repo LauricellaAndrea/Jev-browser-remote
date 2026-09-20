@@ -1,0 +1,30 @@
+{
+  "name": "jev-project",
+  "version": "1.0.0",
+  "description": "Project using TypeSafe AI (Jev System One model)",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "cli": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "tsx test-router.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0",
+    "dotenv": "^18.0.1",
+    "express": "^5.2.1",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.2",
+    "@types/ws": "^8.18.1",
+    "playwright": "^1.63.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
