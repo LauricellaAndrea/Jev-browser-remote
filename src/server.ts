@@ -14,6 +14,7 @@ import {
   controlActiveBrowser, 
   resolveWebsiteUrl 
 } from "./executors/browser.js";
+import { detectTabIntent, executeTabCommand } from "./services/tabManager.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -65,6 +66,42 @@ async function handleUserCommand(rawInput: string) {
         action: "browser_control",
         summary: res
       });
+      return;
+    }
+
+    // Step: Smart Voice Tab Manager (OPEN_NEW, CLOSE_TAB, SMART_SWITCH_OR_OPEN)
+    const tabIntent = detectTabIntent(input);
+    if (tabIntent) {
+      broadcast({ 
+        type: "status_update", 
+        status: "executing", 
+        message: `Tab Manager: esecuzione [${tabIntent.mode}]...` 
+      });
+
+      const tabResult = await executeTabCommand(tabIntent, input, sendLog);
+
+      // WebSocket Telemetry (Requirement 5)
+      broadcast({
+        type: "tab_manager_telemetry",
+        action: "Tab Manager: " + tabResult.action,
+        target: tabResult.target,
+        confidence: tabResult.confidence,
+        latencyMs: tabResult.latencyMs
+      });
+
+      broadcast({
+        type: "jev_intent",
+        action: `Tab Manager: ${tabResult.action}`,
+        confidence: tabResult.confidence,
+        timeMs: tabResult.latencyMs
+      });
+
+      broadcast({
+        type: "action_complete",
+        action: "tab_manager",
+        summary: tabResult.summary
+      });
+
       return;
     }
 

@@ -688,6 +688,13 @@
           document.getElementById("systemStatus").innerText = data.message;
           break;
 
+        case "tab_manager_telemetry":
+          metricAction.innerText = data.action;
+          metricConfidence.innerText = (data.confidence * 100).toFixed(0) + "%";
+          metricLatency.innerText = data.latencyMs.toFixed(0) + " ms";
+          addLog(`🗂️ [${data.action}] Target: "${data.target}" (Confidenza: ${(data.confidence * 100).toFixed(1)}%, Latenza: ${data.latencyMs.toFixed(0)} ms)`, "highlight");
+          break;
+
         case "jev_intent":
           metricAction.innerText = data.action;
           metricConfidence.innerText = (data.confidence * 100).toFixed(0) + "%";

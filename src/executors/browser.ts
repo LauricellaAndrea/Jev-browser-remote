@@ -18,7 +18,8 @@ export interface InteractiveElement {
   href?: string;
 }
 
-let cachedCandidates: InteractiveElement[] = [];
+let activeCandidates: InteractiveElement[] = [];
+let candidatesPageUrl: string = "";
 
 // Automatic cleanup on process shutdown
 process.on("exit", () => {
@@ -35,6 +36,7 @@ process.on("SIGINT", () => {
 
 /**
  * Ensures Google Chrome is visibly open on the user's interactive desktop and connected via CDP.
+ * Always targets the actively focused / most recent page.
  */
 export async function getActivePage(onLog?: LogCallback): Promise<Page> {
   if (page && !page.isClosed()) {
@@ -48,8 +50,8 @@ export async function getActivePage(onLog?: LogCallback): Promise<Page> {
   try {
     browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
     context = browser.contexts()[0] || null;
-    const pages = context?.pages() || [];
-    page = pages.find(p => p.url() !== "about:blank") || pages[pages.length - 1] || (await context?.newPage()) || null;
+    const pages = (context?.pages() || []).filter(p => !p.isClosed());
+    page = pages[pages.length - 1] || (await context?.newPage()) || null;
     if (page) {
       await page.bringToFront();
       return page;
@@ -74,8 +76,8 @@ export async function getActivePage(onLog?: LogCallback): Promise<Page> {
     try {
       browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
       context = browser.contexts()[0] || null;
-      const pages = context?.pages() || [];
-      page = pages.find(p => p.url() !== "about:blank") || pages[pages.length - 1] || (await context?.newPage()) || null;
+      const pages = (context?.pages() || []).filter(p => !p.isClosed());
+      page = pages[pages.length - 1] || (await context?.newPage()) || null;
       if (page) {
         break;
       }
@@ -87,7 +89,10 @@ export async function getActivePage(onLog?: LogCallback): Promise<Page> {
   }
 
   page.on("close", () => {
-    page = null;
+    // If the closed page was the active reference, clear it
+    if (page === null || page.isClosed()) {
+      page = null;
+    }
   });
 
   try {
@@ -95,6 +100,49 @@ export async function getActivePage(onLog?: LogCallback): Promise<Page> {
   } catch (e) {}
 
   return page;
+}
+
+/**
+ * Returns the active BrowserContext connected to the desktop Chrome instance.
+ */
+export async function getBrowserContext(onLog?: LogCallback): Promise<BrowserContext> {
+  if (context && browser && browser.isConnected()) {
+    return context;
+  }
+  await getActivePage(onLog);
+  if (!context) {
+    throw new Error("Impossibile connettersi al contesto del browser Chrome.");
+  }
+  return context;
+}
+
+/**
+ * Returns all active, unclosed pages in the current browser context.
+ */
+export async function getAllPages(onLog?: LogCallback): Promise<Page[]> {
+  const ctx = await getBrowserContext(onLog);
+  return ctx.pages().filter(p => !p.isClosed());
+}
+
+/**
+ * Updates the actively tracked page reference.
+ */
+export function setActivePage(newPage: Page | null): void {
+  page = newPage;
+  if (!newPage || candidatesPageUrl !== newPage.url()) {
+    activeCandidates = [];
+    candidatesPageUrl = "";
+  }
+}
+
+/**
+ * Returns the currently active page reference, if valid and not closed.
+ */
+export function getCurrentlyActivePage(): Page | null {
+  if (page && !page.isClosed()) {
+    return page;
+  }
+  return null;
 }
 
 /**
@@ -179,7 +227,8 @@ export async function performWebSearch(query: string, platform: SearchPlatform, 
       }).filter(item => item.label.length > 5 && item.href);
     }, ordinals);
 
-    cachedCandidates = candidates;
+    activeCandidates = candidates;
+    candidatesPageUrl = p.url();
     onLog?.(`Risultati mostrati a schermo (${candidates.length} video pronti).`);
     return candidates;
   }
@@ -206,7 +255,8 @@ export async function performWebSearch(query: string, platform: SearchPlatform, 
       }).filter(item => item.label.length > 5);
     }, ordinals);
 
-    cachedCandidates = candidates;
+    activeCandidates = candidates;
+    candidatesPageUrl = p.url();
     onLog?.(`Risultati mostrati a schermo (${candidates.length} risultati pronti).`);
     return candidates;
   }
@@ -231,7 +281,8 @@ export async function performWebSearch(query: string, platform: SearchPlatform, 
       }).filter(item => item.label.length > 5 && item.href);
     }, ordinals);
 
-    cachedCandidates = candidates;
+    activeCandidates = candidates;
+    candidatesPageUrl = p.url();
     onLog?.(`Risultati mostrati a schermo (${candidates.length} prodotti pronti).`);
     return candidates;
   }
@@ -242,21 +293,27 @@ export async function performWebSearch(query: string, platform: SearchPlatform, 
 
 /**
  * Returns available candidates on the active page.
+ * Always extracts candidates fresh from the CURRENTLY ACTIVE tab.
  */
 export async function getVisibleElements(onLog?: LogCallback): Promise<InteractiveElement[]> {
   const p = await getActivePage(onLog);
   const currentUrl = p.url();
 
-  if (cachedCandidates.length > 0) {
-    return cachedCandidates;
+  // If already cached for the exact same page URL on this active tab, reuse
+  if (activeCandidates.length > 0 && candidatesPageUrl === currentUrl) {
+    return activeCandidates;
   }
+
+  activeCandidates = [];
+  candidatesPageUrl = currentUrl;
 
   const ordinals = ["primo", "secondo", "terzo", "quarto", "quinto", "sesto", "settimo", "ottavo"];
 
+  // 1. YouTube candidates
   if (currentUrl.includes("youtube.com")) {
     try {
-      await p.waitForSelector('#video-title', { timeout: 3000 });
-      const candidates = await p.$$eval('#video-title', (nodes, ords) => {
+      await p.waitForSelector('#video-title, ytd-video-renderer a#video-title', { timeout: 3000 });
+      const candidates = await p.$$eval('#video-title, ytd-video-renderer a#video-title', (nodes, ords) => {
         return nodes.slice(0, 8).map((node, index) => {
           const syntheticId = `yt_vid_${index}`;
           node.setAttribute("data-jev-id", syntheticId);
@@ -270,11 +327,15 @@ export async function getVisibleElements(onLog?: LogCallback): Promise<Interacti
           };
         }).filter(item => item.label.length > 5 && item.href);
       }, ordinals);
-      cachedCandidates = candidates;
-      return candidates;
+
+      if (candidates.length > 0) {
+        activeCandidates = candidates;
+        return candidates;
+      }
     } catch (e) {}
   }
 
+  // 2. Google Search candidates
   if (currentUrl.includes("google.")) {
     try {
       await p.waitForSelector('h3', { timeout: 3000 });
@@ -294,46 +355,111 @@ export async function getVisibleElements(onLog?: LogCallback): Promise<Interacti
           };
         }).filter(item => item.label.length > 5);
       }, ordinals);
-      cachedCandidates = candidates;
-      return candidates;
+
+      if (candidates.length > 0) {
+        activeCandidates = candidates;
+        return candidates;
+      }
     } catch (e) {}
   }
+
+  // 3. Amazon candidates
+  if (currentUrl.includes("amazon.")) {
+    try {
+      await p.waitForSelector('div[data-component-type="s-search-result"] h2 a, h2.a-size-mini a', { timeout: 3000 });
+      const candidates = await p.$$eval('div[data-component-type="s-search-result"] h2 a, h2.a-size-mini a', (nodes, ords) => {
+        return nodes.slice(0, 8).map((node, index) => {
+          const syntheticId = `amz_${index}`;
+          node.setAttribute("data-jev-id", syntheticId);
+          const title = (node.textContent || "").trim();
+          const rawHref = node.getAttribute("href") || "";
+          const href = rawHref.startsWith("http") ? rawHref : (rawHref ? `https://www.amazon.it${rawHref}` : "");
+          return {
+            id: syntheticId,
+            label: `${index + 1}. [${ords[index] || index + 1} prodotto] ${title}`,
+            href
+          };
+        }).filter(item => item.label.length > 5 && item.href);
+      }, ordinals);
+
+      if (candidates.length > 0) {
+        activeCandidates = candidates;
+        return candidates;
+      }
+    } catch (e) {}
+  }
+
+  // 4. Generic Webpage fallback (links/headings on the active tab)
+  try {
+    const candidates = await p.$$eval('main a, article a, h2 a, h3 a, #content a', (nodes, ords) => {
+      const seen = new Set<string>();
+      const list: any[] = [];
+      for (const node of nodes) {
+        if (list.length >= 8) break;
+        const title = (node.textContent || "").trim();
+        const rawHref = node.getAttribute("href") || "";
+        if (title.length > 3 && rawHref && !rawHref.startsWith("#") && !seen.has(title.toLowerCase())) {
+          seen.add(title.toLowerCase());
+          const syntheticId = `elem_${list.length}`;
+          node.setAttribute("data-jev-id", syntheticId);
+          list.push({
+            id: syntheticId,
+            label: `${list.length + 1}. [${ords[list.length] || list.length + 1} elemento] ${title}`,
+            href: rawHref.startsWith("http") ? rawHref : ""
+          });
+        }
+      }
+      return list;
+    }, ordinals);
+
+    if (candidates.length > 0) {
+      activeCandidates = candidates;
+      return candidates;
+    }
+  } catch (e) {}
 
   return [];
 }
 
 /**
  * Clicks or navigates directly to the chosen element on the desktop.
+ * Operates strictly on the currently active tab.
  */
 export async function clickElementOnScreen(targetId: string, onLog?: LogCallback): Promise<void> {
   const p = await getActivePage(onLog);
-  const matchedCandidate = cachedCandidates.find(c => c.id === targetId);
+  const matchedCandidate = activeCandidates.find(c => c.id === targetId);
 
-  // If candidate has direct href, navigate immediately (bypasses pointer intercept timeouts)
+  // If candidate has direct href, navigate immediately on the active page
   if (matchedCandidate && matchedCandidate.href) {
-    onLog?.(`Avvio a schermo: ${matchedCandidate.label}...`);
+    onLog?.(`Apertura sulla scheda attiva: ${matchedCandidate.label}...`);
     try {
       await p.goto(matchedCandidate.href, { waitUntil: "domcontentloaded" });
       await handleCookieBanners(p);
-      onLog?.(`Video avviato visibilmente sul tuo schermo!`);
+      onLog?.(`Aperto visibilmente sulla scheda attiva!`);
+      activeCandidates = [];
+      candidatesPageUrl = "";
       return;
     } catch (err: any) {
       onLog?.(`Navigazione diretta non riuscita, ripiego su click...`);
     }
   }
 
-  // Fallback: physical click on element
+  // Fallback: physical click on element on the active page
   const selector = `[data-jev-id="${targetId}"]`;
-  onLog?.(`Click sull'elemento [${targetId}]...`);
+  onLog?.(`Click su [${targetId}] nella scheda corrente...`);
   try {
     const locator = p.locator(selector).first();
     await locator.click({ force: true, timeout: 3000 });
     await handleCookieBanners(p);
-    onLog?.(`Click eseguito con successo a schermo!`);
+    onLog?.(`Click eseguito con successo sulla scheda attiva!`);
+    activeCandidates = [];
+    candidatesPageUrl = "";
   } catch (err) {
     try {
       await p.$eval(selector, (el: any) => el.click());
-      onLog?.(`Click DOM completato!`);
+      onLog?.(`Click DOM completato sulla scheda attiva!`);
+      activeCandidates = [];
+      candidatesPageUrl = "";
     } catch (fallbackErr: any) {
       onLog?.(`Errore click: ${fallbackErr.message}`);
     }
@@ -369,7 +495,8 @@ export async function controlActiveBrowser(action: string, onLog?: LogCallback):
     onLog?.("Torno alla pagina precedente (freccia indietro)...");
     try {
       await p.goBack({ timeout: 5000, waitUntil: "domcontentloaded" });
-      cachedCandidates = [];
+      activeCandidates = [];
+      candidatesPageUrl = "";
       return "Tornato alla pagina precedente";
     } catch (e: any) {
       return "Impossibile tornare indietro (inizio cronologia)";
@@ -380,7 +507,8 @@ export async function controlActiveBrowser(action: string, onLog?: LogCallback):
     onLog?.("Vado alla pagina successiva (freccia avanti)...");
     try {
       await p.goForward({ timeout: 5000, waitUntil: "domcontentloaded" });
-      cachedCandidates = [];
+      activeCandidates = [];
+      candidatesPageUrl = "";
       return "Avanzato alla pagina successiva";
     } catch (e: any) {
       return "Impossibile andare avanti (fine cronologia)";
@@ -391,7 +519,8 @@ export async function controlActiveBrowser(action: string, onLog?: LogCallback):
     onLog?.("Ricaricamento pagina in corso...");
     try {
       await p.reload({ waitUntil: "domcontentloaded" });
-      cachedCandidates = [];
+      activeCandidates = [];
+      candidatesPageUrl = "";
       return "Pagina ricaricata";
     } catch (e: any) {
       return "Errore ricaricamento";
