@@ -1,8 +1,8 @@
-# 🎙️ Jev OS & Browser Remote Controller (TypeSafe AI)
+# 🎙️ Jev Browser Remote Controller (TypeSafe AI)
 
 Un controller vocale e testuale autonomo per **Windows & Web Browser**, alimentato dal modello **System One TypeSafe Jev**. 
 
-Il progetto consente di controllare vocalmente il computer e il browser in tempo reale: l'assistente ascolta il comando, prende decisioni strutturate e tipizzate in millisecondi, apre fisicamente Google Chrome e le app di Windows, e compie le azioni a schermo davanti ai tuoi occhi (cercare, cliccare video e risultati, scorrere, mettere in pausa, tornare indietro, regolare il volume).
+Il progetto consente di controllare vocalmente il computer e il browser in tempo reale: l'assistente ascolta il comando, prende decisioni strutturate e tipizzate in millisecondi, apre fisicamente Google Chrome e le app di Windows, e compie le azioni a schermo davanti ai tuoi occhi (gestione schede, ricerche, click su video e risultati, scorrimento, pause, navigazione indietro/avanti e regolazione del volume).
 
 ---
 
@@ -26,18 +26,24 @@ Il progetto consente di controllare vocalmente il computer e il browser in tempo
 - **🧠 Ragionamento Deterministico TypeSafe Jev (System One)**:
   - **Universal Intent Routing**: Valuta in parallelo l'azione richiesta (`web_search`, `open_website`, `browser_click`, `browser_control`, `open_app`, `system_volume`, `system_command`) e la piattaforma di destinazione ottimale (`youtube`, `google`, `amazon`, `wikipedia`) con latenza media inferiore a 900 ms.
   - **Select Instead of Generate**: Ispeziona il DOM della pagina aperta ed estrae i candidati; quando chiedi di aprire un elemento (es. *"clicca su Lose Yourself"* oppure *"apri il primo video"*, *"clicca sul secondo risultato"*), Jev seleziona l'elemento esatto con confidenza calibrata al 99-100%.
+- **🗂️ Smart Voice Tab Manager (Novità)**:
+  - **Apertura Nuove Schede (`OPEN_NEW`)**: Riconosce trigger e target naturali (*"apri nuova tab e cerca scarpe su amazon"*, *"nuova tab youtube"*, *"apri una nuova scheda github"*).
+  - **Cambio Scheda Semantico (`SMART_SWITCH_OR_OPEN`)**: Ispeziona in parallelo i titoli e gli host di tutte le schede aperte via Playwright CDP. Se Jev individua una scheda attinente con confidenza $\ge 0.70$, la porta subito in primo piano (`bringToFront()`). Se nessuna scheda corrisponde, esegue il fallback automatico aprendo la risorsa richiesta.
+  - **Chiusura Intelligente Schede (`CLOSE_TAB`)**: Chiusura generica della scheda a schermo (*"chiudi questa scheda"*) oppure chiusura mirata (*"chiudi la scheda di YouTube"*), riallineando immediatamente la scheda attiva su quella rimasta per prevenire dangling reference.
+  - **Targeting Scheda Corrente per i Click**: La selezione e il click dei risultati candidati avvengono rigorosamente sulla scheda attualmente a schermo, isolando la memoria dei candidati per pagina/URL ed evitando click accidentali su schede precedenti.
 - **🖥️ Controllo Fisico del Browser (Playwright + Chrome CDP)**:
   - **Apertura visibile su Desktop**: Grazie al launcher Win32 (`launch-desktop.ps1`), Chrome si apre direttamente sul monitor fisico reale (`WinSta0\Default`) anche quando il server gira in background.
   - **Nessun popup o link manuale**: Le pagine, le ricerche e i video si aprono e si avviano da soli.
   - **Superamento Banner Cookie**: Bypassa automaticamente i popup di consenso cookie (YouTube, Google Italia, Amazon).
-  - **Navigazione Completa**: Tasti rapidi di riproduzione (Play/Pausa, Schermo Intero, Mute, Scroll) e cronologia (Torna indietro, Vai avanti, Ricarica).
+  - **Navigazione Completa**: Tasti rapidi di riproduzione (Play/Pausa, Schermo Intero, Mute, Scroll) e cronologia (Torna indietro, Vai avanti, Ricarica) con priorità di routing garantita.
 - **🪟 Automazione Nativa Windows**:
   - Avvio immediato di app di sistema (Calcolatrice, Blocco Note, Paint, Esplora Risorse, Terminale, Impostazioni).
   - Regolazione fine del volume audio di sistema Windows via script PowerShell dedicato.
-- **🎙️ Dashboard Vocale in Tempo Reale (Web HUD)**:
+- **🎙️ Dashboard Vocale & Command Bar (Web HUD)**:
   - Web Speech API integrata in italiano (`it-IT`).
   - Filtro antirimbalzo (debouncing) per evitare doppie attivazioni del microfono.
-  - Telemetria live: percentuale di confidenza Jev, tempo di inferenza in millisecondi e registro eventi operativo via WebSocket.
+  - Command Bar moderna, centrata e integrata con pulsante rapido `Invio ↵`.
+  - Telemetria live WebSocket: percentuale di confidenza Jev, tempo di inferenza in ms, azioni del Tab Manager (🗂️) e registro eventi operativo.
 
 ---
 
@@ -50,41 +56,45 @@ Jev-project/
 ├── tsconfig.json                # Configurazione TypeScript
 ├── .env                         # Chiave API TypeSafe (TYPESAFE_API_KEY)
 ├── public/
-│   └── index.html               # Interfaccia Web HUD (Microfono, Telemetria Jev, Log)
+│   └── index.html               # Interfaccia Web HUD (Microfono, Command Bar, Telemetria Jev, Log)
 ├── scripts/
 │   ├── launch-desktop.ps1       # Bridge Win32 per creare processi su WinSta0\Default
 │   └── set-volume.ps1           # Script PowerShell per regolazione volume master
 └── src/
-    ├── server.ts                # Server Express + WebSocket & orchestratore comandi
+    ├── server.ts                # Server Express + WebSocket & orchestratore comandi con priorità
     ├── index.ts                 # CLI alternativa da terminale
     ├── services/
-    │   └── typesafe.ts          # Client TypeSafe Jev (Routing e Scelta Candidati)
+    │   ├── typesafe.ts          # Client TypeSafe Jev (Routing e Scelta Candidati)
+    │   └── tabManager.ts        # Smart Voice Tab Manager (OPEN_NEW, CLOSE_TAB, SMART_SWITCH)
     └── executors/
-        ├── browser.ts           # Automazione Chrome visibile via Playwright CDP
+        ├── browser.ts           # Automazione Chrome visibile via Playwright CDP & targeting schede
         └── windows.ts           # Automazione comandi e app native di Windows
 ```
 
 ---
 
-## 🛠️ Cosa è Stato Implementato fino ad oggi
+## 🛠️ Cosa è Stato Implementato
 
-1. **Risolto il problema del Desktop Nascosto (WinSta0 / Sandbox)**:
-   - *Problema*: Quando i comandi venivano eseguiti in background, Windows li avviava in un desktop virtuale isolato (`WinSta0\exebox-...`); il server diceva *"Aperto a schermo"*, ma sul monitor dell'utente non compariva nulla.
-   - *Soluzione*: Creato `scripts/launch-desktop.ps1` che chiama l'API Win32 `OpenDesktop("Default")` e `SetThreadDesktop` per forzare l'apertura grafica sul monitor reale.
-2. **Integrazione Chrome DevTools Protocol (CDP)**:
+1. **Smart Voice Tab Manager (Playwright + TypeSafe Jev)**:
+   - Modulo TypeScript dedicato (`src/services/tabManager.ts`) per gestire l'intero ciclo di vita delle schede: apertura, switch euristico/semantico e chiusura.
+   - **Estrazione Parallela Schede**: Lettura di titoli e URL tramite `Promise.all` con filtro `!page.isClosed()` e timeout di sicurezza a 800ms per non impattare la latenza.
+   - **Gestione Dangling Reference**: Quando una scheda viene chiusa, il puntatore interno si riaggancia immediatamente all'ultima scheda rimanente portandola in primo piano.
+   - **Targeting Isolato sulla Scheda Corrente**: La cache dei risultati cliccabili è legata all'URL della scheda attiva. I comandi *"clicca sul secondo risultato"* agiscono sempre sulla scheda a schermo, senza interferenze con schede aperte in precedenza.
+2. **Priorità Assoluta di Routing**:
+   - I comandi di cronologia (`torna indietro`, `vai avanti`, `ricarica`), i comandi di volume (`volume al...`) e i comandi multimediali vengono elaborati prima dell'euristica delle schede, evitando che espressioni come *"torna indietro"* aprano schede per errore.
+3. **Risolto il problema del Desktop Nascosto (WinSta0 / Sandbox)**:
+   - Creato `scripts/launch-desktop.ps1` che invoca l'API Win32 `OpenDesktop("Default")` e `SetThreadDesktop` per forzare l'apertura grafica sul monitor reale.
+4. **Integrazione Chrome DevTools Protocol (CDP)**:
    - Chrome viene avviato con la porta di debug remoto (`--remote-debugging-port=9222`) e un profilo dedicato permanente (`JevDevProfile`).
    - Playwright si connette via `chromium.connectOverCDP`, garantendo il pieno controllo della finestra visibile senza confliggere con il Chrome personale già aperto.
-3. **Selezione Ordinale su Google & Risoluzione Redirect**:
-   - *Problema*: Su Google i link utilizzano percorsi relativi o redirect (`/goto?...`, `/url?...`), provocando lo scarto di tutti i risultati se filtrati per `http`.
-   - *Soluzione*: Risolti tutti gli URL di Google e aggiunte etichette ordinali in italiano (`1. [primo risultato]`, `2. [secondo risultato]`), consentendo a Jev di selezionare con precisione chirurgica comandi come *"clicca sul primo risultato"* o *"apri il secondo"*.
-4. **Navigazione Cronologia (`Torna indietro`, `Vai avanti`, `Ricarica`)**:
-   - Aggiunto supporto immediato a comandi di navigazione cronologica del browser: *"torna indietro"* (`p.goBack()`), *"vai avanti"* (`p.goForward()`), *"ricarica"* (`p.reload()`) eseguiti in meno di 50 ms.
-5. **Bypass dei Timeout Pointer Events su YouTube**:
-   - Superati i problemi di intercettazione click causati dai banner di consenso o dalle intestazioni fisse di YouTube, implementando la navigazione diretta istantanea all'URL del video con fallback a click forzato e DOM evaluation.
-6. **Rimozione Completa di Bottoni e Link Manuali**:
-   - Eliminata la necessità di cliccare collegamenti nella dashboard: il flusso è 100% autonomo hands-free.
-7. **Stabilizzazione del Microfono e Web Speech API**:
-   - Risolto il problema del loop audio e dei trigger a raffica grazie a debouncing temporale (2.5s) e gestione controllata del ciclo di ascolto continuo.
+5. **Selezione Ordinale su Google, YouTube e Amazon**:
+   - Etichette ordinali in italiano (`1. [primo risultato]`, `2. [secondo risultato]`), consentendo a Jev di selezionare con precisione chirurgica comandi come *"clicca sul primo risultato"* o *"apri il secondo"*.
+6. **Navigazione Cronologia (`Torna indietro`, `Vai avanti`, `Ricarica`)**:
+   - Supporto a comandi di navigazione cronologica del browser: *"torna indietro"* (`p.goBack()`), *"vai avanti"* (`p.goForward()`), *"ricarica"* (`p.reload()`) eseguiti in meno di 50 ms.
+7. **Bypass dei Timeout Pointer Events su YouTube & Cookie Banners**:
+   - Superati i problemi di intercettazione click con navigazione diretta all'URL del video con fallback a click forzato e DOM evaluation.
+8. **Interfaccia Web HUD Rinnovata**:
+   - Navbar pulita (*Jev Browser Remote Controller*), box comandi centrale con supporto `Invio ↵`, footer con crediti e gestione completa degli eventi di telemetria WebSocket (`tab_manager_telemetry`).
 
 ---
 
@@ -117,36 +127,48 @@ Puoi avviare il controller in due modi:
   npm run dev
   ```
 
-### 5. Utilizzo
-1. Apri il browser su: **`http://localhost:3000`**
-2. Clicca sull'icona del microfono 🎤 (*"🔴 In ascolto..."*) oppure scrivi un comando nella barra in basso.
-3. Prova questi comandi vocali:
-   - 🔍 **Ricerche Web**:
-     - *"Cercami Eminem su YouTube"* $\rightarrow$ Apre Chrome ed esegue la ricerca.
-     - *"Cerca la ricetta della carbonara su Google"* $\rightarrow$ Cerca su Google.
-     - *"Prezzo cuffie Bluetooth su Amazon"* $\rightarrow$ Cerca su Amazon.it.
-     - *"Apri Wikipedia"* $\rightarrow$ Apre la homepage di Wikipedia.
-   - 🎯 **Selezione e Click Autonomo**:
-     - *"Clicca su Lose Yourself"* $\rightarrow$ Individua il video e lo avvia.
-     - *"Apri il primo video"* o *"Metti il secondo"* $\rightarrow$ Seleziona per posizione su YouTube.
-     - *"Clicca sul primo risultato"* o *"Apri il secondo"* $\rightarrow$ Seleziona per posizione su Google.
-   - 🔙 **Navigazione Cronologia Browser**:
-     - *"Torna indietro"* $\rightarrow$ Torna alla pagina o ricerca precedente.
-     - *"Vai avanti"* $\rightarrow$ Avanza alla pagina successiva.
-     - *"Ricarica"* o *"Aggiorna"* $\rightarrow$ Ricarica la pagina attiva.
-   - ⏯️ **Controlli Multimediali**:
-     - *"Metti in pausa"* o *"Riprendi"* $\rightarrow$ Ferma/avvia la riproduzione.
-     - *"Schermo intero"* $\rightarrow$ Attiva/disattiva fullscreen.
-     - *"Muta"* $\rightarrow$ Silenzia/riattiva l'audio.
-   - 💻 **Comandi di Sistema Windows**:
-     - *"Apri Calcolatrice"* o *"Apri Blocco Note"* $\rightarrow$ Apre l'app nativa a schermo.
-     - *"Volume al 30%"* o *"Alza il volume"* $\rightarrow$ Modifica il volume di Windows.
+### 5. Comandi Vocali Disponibili
+
+Apri il browser su **`http://localhost:3000`**, attiva il microfono (o scrivi nella command bar):
+
+#### 🗂️ Gestione Vocale Schede (Smart Tab Manager)
+- *"Apri nuova tab e cerca scarpe su Amazon"* $\rightarrow$ Apre una nuova scheda con la ricerca Amazon.
+- *"Nuova tab YouTube"* $\rightarrow$ Apre una nuova scheda su YouTube.
+- *"Apri una nuova scheda GitHub"* $\rightarrow$ Apre una nuova scheda con GitHub.
+- *"Passa alla scheda YouTube"* o *"Passa al video"* $\rightarrow$ Jev porta la scheda di YouTube in primo piano.
+- *"Vai su GitHub"* $\rightarrow$ Se già aperta ci torna sopra, altrimenti la apre come fallback.
+- *"Torna alla scheda di Amazon"* $\rightarrow$ Riporta la scheda Amazon attiva.
+- *"Chiudi la scheda di YouTube"* $\rightarrow$ Chiude selettivamente la scheda di YouTube.
+- *"Chiudi questa scheda"* $\rightarrow$ Chiude la scheda attualmente a schermo e riattiva quella rimasta.
+
+#### 🔍 Ricerche Web
+- *"Cercami Eminem su YouTube"* $\rightarrow$ Esegue la ricerca su YouTube.
+- *"Cerca la ricetta della carbonara su Google"* $\rightarrow$ Cerca su Google.
+- *"Prezzo cuffie Bluetooth su Amazon"* $\rightarrow$ Cerca su Amazon.it.
+- *"Apri Wikipedia"* $\rightarrow$ Apre Wikipedia.
+
+#### 🎯 Selezione e Click Autonomo (Sulla scheda corrente)
+- *"Clicca su Lose Yourself"* $\rightarrow$ Individua il video su YouTube e lo avvia.
+- *"Clicca sul primo video"* o *"Metti il secondo"* $\rightarrow$ Clicca per posizione su YouTube.
+- *"Clicca sul primo risultato"* o *"Apri il secondo"* $\rightarrow$ Clicca per posizione su Google o Amazon.
+
+#### 🔙 Navigazione Cronologia Browser
+- *"Torna indietro"* $\rightarrow$ Torna alla pagina o ricerca precedente.
+- *"Vai avanti"* $\rightarrow$ Avanza alla pagina successiva.
+- *"Ricarica"* o *"Aggiorna"* $\rightarrow$ Ricarica la pagina attiva.
+
+#### ⏯️ Controlli Multimediali
+- *"Metti in pausa"* o *"Riprendi"* $\rightarrow$ Ferma/avvia la riproduzione.
+- *"Schermo intero"* $\rightarrow$ Attiva/disattiva fullscreen.
+- *"Muta"* $\rightarrow$ Silenzia/riattiva l'audio.
+
+#### 💻 Comandi di Sistema Windows
+- *"Apri Calcolatrice"* o *"Apri Blocco Note"* $\rightarrow$ Apre l'app nativa a schermo.
+- *"Volume al 30%"* o *"Alza il volume"* $\rightarrow$ Modifica il volume di Windows.
 
 ---
 
 ## 🚀 Come Arricchire ed Estendere il Progetto
-
-Se desideri aggiungere nuove funzionalità, ecco una guida rapida ai punti di estensione:
 
 ### 1. Usare i Tuoi Account Personali (Gmail, Calendar, Amazon, YouTube Premium)
 Il profilo creato dal controller (`JevDevProfile`) è una cartella **permanente** situata in:
@@ -182,11 +204,6 @@ Nel file [`src/executors/windows.ts`](file:///c:/Users/andre/Desktop/Jev-project
     "steam": "start steam:"
   };
   ```
-
-### 4. Aggiungere Nuove Azioni Intelligenti Jev (System One)
-Se vuoi introdurre comandi speciali (ad esempio *"riassumi la pagina"*, *"estrai il prezzo"*, *"compila il modulo"*):
-1. In `src/services/typesafe.ts`, aggiungi l'opzione nella domanda `action` di `routeUniversalIntent`.
-2. In `src/server.ts`, gestisci il nuovo `case` nello `switch(routing.action)` invocando la funzione corrispondente in `browser.ts`.
 
 ---
 
