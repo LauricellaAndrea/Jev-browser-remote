@@ -4,6 +4,10 @@ Un controller vocale e testuale autonomo per **Windows & Web Browser**, alimenta
 
 Il progetto consente di controllare vocalmente il computer e il browser in tempo reale: l'assistente ascolta il comando, prende decisioni strutturate e tipizzate in millisecondi, apre fisicamente Google Chrome e le app di Windows, e compie le azioni a schermo davanti ai tuoi occhi (gestione schede, ricerche, click su video e risultati, scorrimento, pause, navigazione indietro/avanti e regolazione del volume).
 
+> [!WARNING]
+> ⚠️ **Progetto demo/beta, non sicuro per l'uso in produzione.**  
+> Il server non ha autenticazione e accetta comandi da qualsiasi origine. Avvialo solo quando lo stai usando e chiudilo subito dopo.
+
 ---
 
 ## 📌 Nota sulla Versione Attuale: Profilo Chrome Dedicato / Ospite
